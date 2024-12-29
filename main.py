@@ -1,6 +1,7 @@
 import geopandas as gpd
 import folium
 from branca.colormap import linear
+import math
 
 # Step 1: Load the data
 pop_density_gdf = gpd.read_file('C:/tmp/clipped_geopackage.gpkg')
@@ -21,8 +22,18 @@ mean_density_per_city = pop_density_within_cities.groupby('ADM2_PL').agg({
 # Merge with city geometries
 mean_density_per_city_gdf = cities_gdf.merge(mean_density_per_city, on='ADM2_PL')
 
-# Initialize Folium map
-m = folium.Map(location=[52.1, 19.4], zoom_start=6)
+# Calculate the bounds of the GeoDataFrame (min/max coordinates)
+bounds = mean_density_per_city_gdf.total_bounds  # [minx, miny, maxx, maxy]
+
+# Calculate the center point of the map (mean of min and max for x and y)
+center_lat = (bounds[1] + bounds[3]) / 2  # Average of miny and maxy
+center_lon = (bounds[0] + bounds[2]) / 2  # Average of minx and maxx
+
+# Initialize the map using the calculated center
+m = folium.Map(location=[center_lat, center_lon], zoom_start=6)
+
+# Fit the map bounds to the data
+m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
 
 # Create a color map
 colormap = linear.YlOrRd_09.scale(mean_density_per_city_gdf['OBS_VALUE_T'].min(),
@@ -31,7 +42,6 @@ colormap.caption = "Population Density (people/km²)"
 
 # Add city polygons as individual layers
 for _, row in mean_density_per_city_gdf.iterrows():
-    city_layer = folium.FeatureGroup(name=row['ADM2_PL'])
     tooltip = (f"<b>City:</b> {row['ADM2_PL']}<br>"
                f"<b>Mean Density:</b> {row['OBS_VALUE_T']:.2f} people/km²")
 
@@ -44,9 +54,7 @@ for _, row in mean_density_per_city_gdf.iterrows():
             'fillOpacity': 0.6
         },
         tooltip=folium.Tooltip(tooltip, sticky=True)
-    ).add_to(city_layer)
-
-    city_layer.add_to(m)
+    ).add_to(m)
 
 # Add the color scale legend (move it to left-center as a vertical bar)
 vertical_scale_css = '''
@@ -64,25 +72,25 @@ vertical_scale_css = '''
     }
     .color-scale span {
         position: absolute;
-        color: white;
+        color: black;
         text-align: center;
         width: 100%;
     }
     .color-scale .min {
-        top: 0%;
+        bottom: 0%;
     }
     .color-scale .max {
-        bottom: 0%;
+        top: 0%;
     }
 </style>
 '''
 m.get_root().html.add_child(folium.Element(vertical_scale_css))
 
 # Add the color scale div
-colormap_div = '''
+colormap_div = f'''
 <div class="color-scale">
-    <span class="min">High</span>
-    <span class="max">Low</span>
+    <span class="min">{math.ceil(mean_density_per_city_gdf['OBS_VALUE_T'].min())}</span>
+    <span class="max">{math.ceil(mean_density_per_city_gdf['OBS_VALUE_T'].max())}</span>
 </div>
 '''
 m.get_root().html.add_child(folium.Element(colormap_div))
@@ -94,14 +102,10 @@ title_html = '''
                 background-color: white; padding: 10px; 
                 font-size: 18px; font-weight: bold; z-index: 9999; 
                 border: 1px solid black; border-radius: 5px;">
-        Population Density Map of Poland
+        Poland Population Density by City
     </div>
 '''
 m.get_root().html.add_child(folium.Element(title_html))
-
-# Remove the layer control from the map
-# Commented this out to remove the layer control
-# LayerControl(collapsed=False).add_to(m)
 
 # Save map to HTML file
 m.save('Poland_Population_Density_By_City_Vertical_Scale_No_LayerControl.html')
